@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mesh-viewer"
+version = "0.1.0"
+description = "GUI pipeline for importing CAD, meshing, uniforming, and viewing resulting meshes."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "PySide6",
+    "pyvista",
+    "pyvistaqt",
+    "numpy",
+    "pymeshlab",
+    "ansys-meshing-prime",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+]
+
+[project.scripts]
+mesh-viewer = "mesh_viewer.main:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
