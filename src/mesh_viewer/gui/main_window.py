@@ -103,7 +103,7 @@ class MainWindow(QMainWindow):
         self._on_mode_changed()
 
     def _on_mode_changed(self) -> None:
-        """Uniform-only re-uniforms whatever's selected in the Components tree
+        """Uniform-only re-uniforms whatever's checked in the Components tree
         (i.e. currently shown in the viewer), so the separate Input folder
         picker doesn't apply and is disabled to avoid confusion.
         """
@@ -112,7 +112,7 @@ class MainWindow(QMainWindow):
         self.input_path_edit.setEnabled(not is_uniform_only)
         self.input_browse_button.setEnabled(not is_uniform_only)
         if is_uniform_only:
-            self.input_path_edit.setPlaceholderText("(uses the Components tree's current selection)")
+            self.input_path_edit.setPlaceholderText("(uses the Components tree's checked items)")
         else:
             self.input_path_edit.setPlaceholderText("")
 
@@ -144,16 +144,16 @@ class MainWindow(QMainWindow):
         mode = self.mode_combo.currentData()
 
         if mode == "uniform_only":
-            # Re-uniform whatever mesh(es) are currently selected in the
+            # Re-uniform whatever mesh(es) are currently checked in the
             # Components tree (i.e. shown in the viewer) - handy for tuning
             # remeshing parameters while looking right at the part.
-            selected = self.component_tree.selected_output_paths()
-            if not selected:
+            checked = self.component_tree.checked_output_paths()
+            if not checked:
                 self.log_panel.append_message(
-                    "error", "Select one or more meshed parts in the Components tree to re-uniform."
+                    "error", "Check one or more meshed parts in the Components tree to re-uniform."
                 )
                 return
-            components = [Path(p) for p in selected]
+            components = [Path(p) for p in checked]
         else:
             try:
                 input_path = Path(self.input_path_edit.text())
@@ -194,13 +194,13 @@ class MainWindow(QMainWindow):
         self.component_tree.add_output(component_path, stage, output_path)
         self.log_panel.append_message("info", f"{stage}: {component_path} -> {output_path}")
 
-    def _on_components_selected(self, output_paths: list[str]) -> None:
-        valid_paths = []
-        for output_path in output_paths:
+    def _on_components_selected(self, entries: list[tuple[str, float]]) -> None:
+        valid_entries = []
+        for output_path, scale in entries:
             path = Path(output_path)
             if path.exists():
-                valid_paths.append(path)
+                valid_entries.append((path, scale))
             else:
                 self.log_panel.append_message("error", f"Mesh file not found: {path}")
-        self.viewer.set_meshes(valid_paths)
+        self.viewer.set_meshes(valid_entries)
 

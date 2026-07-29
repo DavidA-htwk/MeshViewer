@@ -25,9 +25,10 @@ _COLOR_PALETTE = [
 class ViewerPanel(QWidget):
     """A single 3D scene that can display several meshes side by side at once.
 
-    Call set_meshes() with the full list of paths that should currently be
-    visible - meshes no longer in the list are removed and new ones are added,
-    so it stays in sync with e.g. a multi-selection in the component tree.
+    Call set_meshes() with the full list of (path, scale) entries that should
+    currently be visible - meshes no longer in the list are removed and new
+    ones are added, so it stays in sync with e.g. the component tree's
+    checked items and their per-folder scale factors.
     """
 
     def __init__(self, parent=None) -> None:
@@ -53,31 +54,35 @@ class ViewerPanel(QWidget):
         layout.addWidget(self._stats_label)
 
         self._meshes: dict[str, pv.PolyData] = {}
+        self._scales: dict[str, float] = {}
         self._actors: dict[str, object] = {}
         self._colors: dict[str, str] = {}
         self._color_cycle = cycle(_COLOR_PALETTE)
         self._has_loaded_once = False
 
-    def set_meshes(self, paths: list[Path]) -> None:
-        """Show exactly these mesh files, loading new ones and dropping deselected ones.
+    def set_meshes(self, entries: list[tuple[Path, float]]) -> None:
+        """Show exactly these (path, scale) entries, loading new ones and dropping
+        deselected ones. Re-checking an already-loaded mesh with a new scale
+        just re-renders it scaled, without re-reading the file from disk.
 
         The camera is only auto-framed the first time this viewer ever loads a
         mesh; afterwards it's left exactly as the user has it, so adding/
-        removing meshes or toggling wireframe/edges never yanks the view
-        around. Use Reset Camera to reframe explicitly.
+        removing meshes, rescaling, or toggling wireframe/edges never yanks the
+        view around. Use Reset Camera to reframe explicitly.
         """
-        wanted = {str(p) for p in paths}
+        wanted = {str(p): scale for p, scale in entries}
 
         for key in list(self._meshes.keys()):
             if key not in wanted:
                 self._meshes.pop(key, None)
                 self._colors.pop(key, None)
+                self._scales.pop(key, None)
 
-        for path in paths:
-            key = str(path)
+        for key, scale in wanted.items():
             if key not in self._meshes:
                 self._meshes[key] = pv.read(key)
                 self._colors[key] = next(self._color_cycle)
+            self._scales[key] = scale
 
         self._refresh_actors()
 
@@ -103,13 +108,17 @@ class ViewerPanel(QWidget):
         style = "wireframe" if self._wireframe_action.isChecked() else "surface"
         show_edges = self._edges_action.isChecked()
         for key, mesh in self._meshes.items():
+            scale = self._scales.get(key, 1.0)
+            scaled_mesh = mesh if scale == 1.0 else mesh.copy()
+            if scale != 1.0:
+                scaled_mesh.points = scaled_mesh.points * scale
             # reset_camera=False is required here: pyvista's add_mesh() otherwise
             # auto-resets the camera itself whenever camera_set is False (which
             # it stays, since our own reset_camera() call doesn't flip that
             # flag) - without this, every wireframe/edges toggle or mesh
             # add/remove would silently reframe the view.
             self._actors[key] = self.plotter.add_mesh(
-                mesh,
+                scaled_mesh,
                 style=style,
                 show_edges=show_edges,
                 color=self._colors[key],
