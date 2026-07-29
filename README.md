@@ -1,9 +1,12 @@
 # Mesh Viewer
 
-GUI pipeline for importing CAD assemblies, meshing/uniforming components in the
-background, and inspecting the resulting meshes in an interactive 3D viewer.
+GUI meshing tool that uses Ansys prime meshing tool to mesh .step files, .fmd files and so on.
 
-See [mesh_plan.md](mesh_plan.md) for the full design plan and to-do list.
+After that, mesh uniformization can be done to get better results.
+
+Different meshes can be easily compared in the integrated viewer:
+
+![Preview of the mesh](UI.png "Preview of the mesh")
 
 ## Layout
 
@@ -13,19 +16,18 @@ src/mesh_viewer/
     gui/                # PySide6 windows/widgets
     core/               # meshing + uniforming pipeline wrappers
     io/                 # file discovery / output writing
-tests/
 ```
 
 ## Setup
 
 ```powershell
 python -m venv .venv
-.venv\Scripts\Activate.ps1
-pip install -e .[dev]
+.venv\Scripts\Activate
+pip install -r requirements.txt
 ```
 
 ## Run
 
 ```powershell
-mesh-viewer
+python .\src\mesh_viewer\main.py
 ```
