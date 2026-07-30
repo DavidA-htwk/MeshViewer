@@ -3,6 +3,7 @@
 from pathlib import Path
 
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (
     QComboBox,
     QDockWidget,
@@ -22,6 +23,7 @@ from mesh_viewer.gui.log_panel import LogPanel
 from mesh_viewer.gui.params_panel import ParamsPanel
 from mesh_viewer.gui.viewer_panel import ViewerPanel
 from mesh_viewer.io.discovery import discover_components, discover_meshes
+from mesh_viewer.resources import ICON_PATH
 
 
 class MainWindow(QMainWindow):
@@ -30,6 +32,7 @@ class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
         self.setWindowTitle("Mesh Viewer")
+        self.setWindowIcon(QIcon(str(ICON_PATH)))
         self.resize(1300, 850)
 
         self._worker: PipelineWorker | None = None

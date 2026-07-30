@@ -4,7 +4,7 @@ from itertools import cycle
 from pathlib import Path
 
 import pyvista as pv
-from PySide6.QtCore import Signal
+from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtGui import QAction, QGuiApplication, QImage
 from PySide6.QtWidgets import QLabel, QToolBar, QVBoxLayout, QWidget
 from pyvistaqt import QtInteractor
@@ -33,6 +33,10 @@ _OFFSET_OPACITY = 0.8
 _OFFSET_LINE_WIDTH = 2.0
 _OFFSET_STIPPLE_PATTERN = 0xF0F0  # alternating on/off bits -> dashed, gapped lines
 _OFFSET_STIPPLE_REPEAT = 2
+
+# Brief white overlay shown right after a screenshot is copied, as visual feedback.
+_FLASH_DURATION_MS = 120
+_FLASH_STYLESHEET = "background-color: rgba(255, 255, 255, 200);"
 
 
 class ViewerPanel(QWidget):
@@ -67,6 +71,13 @@ class ViewerPanel(QWidget):
 
         self.plotter = QtInteractor(self)
         layout.addWidget(self.plotter.interactor)
+
+        # Hidden until copy_screenshot_to_clipboard() briefly shows it as a
+        # camera-flash-style confirmation.
+        self._flash_overlay = QWidget(self.plotter.interactor)
+        self._flash_overlay.setStyleSheet(_FLASH_STYLESHEET)
+        self._flash_overlay.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        self._flash_overlay.hide()
 
         self._stats_label = QLabel("No mesh loaded")
         layout.addWidget(self._stats_label)
@@ -218,6 +229,15 @@ class ViewerPanel(QWidget):
     def reset_camera(self) -> None:
         self.plotter.reset_camera()
 
+    def _flash(self) -> None:
+        """Briefly show a translucent white overlay over the 3D view as a
+        camera-flash-style confirmation that a screenshot was just taken.
+        """
+        self._flash_overlay.setGeometry(self.plotter.interactor.rect())
+        self._flash_overlay.show()
+        self._flash_overlay.raise_()
+        QTimer.singleShot(_FLASH_DURATION_MS, self._flash_overlay.hide)
+
     def copy_screenshot_to_clipboard(self) -> None:
         """Render the current scene and copy it to the system clipboard as an image."""
         try:
@@ -231,4 +251,5 @@ class ViewerPanel(QWidget):
         except Exception as exc:  # noqa: BLE001 - report, don't crash the viewer
             self.screenshot_copied.emit(False, str(exc))
         else:
+            self._flash()
             self.screenshot_copied.emit(True, "Screenshot copied to clipboard.")
