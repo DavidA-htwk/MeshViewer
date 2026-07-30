@@ -3,11 +3,13 @@
 This is the UI surface for editing MeshingParams / UniformParams before a run.
 """
 
+from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
     QCheckBox,
     QDoubleSpinBox,
     QFormLayout,
     QGroupBox,
+    QHBoxLayout,
     QLineEdit,
     QSpinBox,
     QVBoxLayout,
@@ -20,6 +22,10 @@ from mesh_viewer.core.uniforming import UniformParams
 
 class ParamsPanel(QWidget):
     """Two group boxes of spin boxes / fields bound to MeshingParams and UniformParams."""
+
+    # Emitted whenever the max-surf-dist preview checkbox or value changes,
+    # so the viewer can live-update its offset-surface preview.
+    max_surf_dist_preview_changed = Signal(bool, float)
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -62,17 +68,34 @@ class ParamsPanel(QWidget):
         self.max_surf_dist_mm = QDoubleSpinBox()
         self.max_surf_dist_mm.setRange(0.0, 1e6)
         self.max_surf_dist_mm.setValue(0.1)
+        self.max_surf_dist_preview = QCheckBox("Preview in viewer")
+        self.max_surf_dist_preview.setToolTip(
+            "Show translucent offset surfaces at +/- this distance around the "
+            "currently viewed mesh(es), so you can see the reprojection "
+            "tolerance band before running the remesh."
+        )
         self.check_surf_dist = QCheckBox("Cap reprojection distance")
         self.check_surf_dist.setChecked(True)
         uniform_form.addRow("Target edge length (mm)", self.target_len_mm)
         uniform_form.addRow("Iterations", self.iterations)
         uniform_form.addRow("Feature angle (deg)", self.feature_deg)
-        uniform_form.addRow("Max surface distance (mm)", self.max_surf_dist_mm)
+        max_surf_dist_row = QHBoxLayout()
+        max_surf_dist_row.addWidget(self.max_surf_dist_mm)
+        max_surf_dist_row.addWidget(self.max_surf_dist_preview)
+        uniform_form.addRow("Max surface distance (mm)", max_surf_dist_row)
         uniform_form.addRow("", self.check_surf_dist)
+
+        self.max_surf_dist_mm.valueChanged.connect(self._emit_max_surf_dist_preview_changed)
+        self.max_surf_dist_preview.toggled.connect(self._emit_max_surf_dist_preview_changed)
 
         layout.addWidget(mesh_box)
         layout.addWidget(uniform_box)
         layout.addStretch(1)
+
+    def _emit_max_surf_dist_preview_changed(self, *_args) -> None:
+        self.max_surf_dist_preview_changed.emit(
+            self.max_surf_dist_preview.isChecked(), self.max_surf_dist_mm.value()
+        )
 
     def get_meshing_params(self) -> MeshingParams:
         return MeshingParams(

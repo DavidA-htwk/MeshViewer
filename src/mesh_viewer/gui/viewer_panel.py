@@ -4,7 +4,8 @@ from itertools import cycle
 from pathlib import Path
 
 import pyvista as pv
-from PySide6.QtGui import QAction
+from PySide6.QtCore import Signal
+from PySide6.QtGui import QAction, QGuiApplication, QImage
 from PySide6.QtWidgets import QLabel, QToolBar, QVBoxLayout, QWidget
 from pyvistaqt import QtInteractor
 
@@ -21,6 +22,18 @@ _COLOR_PALETTE = [
     "paleturquoise",
 ]
 
+# Colors/style for the max-surf-dist offset preview shells - fixed and distinct
+# from the mesh color palette so the tolerance band reads the same way
+# regardless of which mesh(es) it's shown around. Rendered as dashed wireframe
+# lines (rather than a solid translucent surface) so the underlying mesh stays
+# clearly visible through the gaps.
+_OFFSET_OUTWARD_COLOR = "lightgreen"
+_OFFSET_INWARD_COLOR = "deepskyblue"
+_OFFSET_OPACITY = 0.8
+_OFFSET_LINE_WIDTH = 2.0
+_OFFSET_STIPPLE_PATTERN = 0xF0F0  # alternating on/off bits -> dashed, gapped lines
+_OFFSET_STIPPLE_REPEAT = 2
+
 
 class ViewerPanel(QWidget):
     """A single 3D scene that can display several meshes side by side at once.
@@ -30,6 +43,8 @@ class ViewerPanel(QWidget):
     ones are added, so it stays in sync with e.g. the component tree's
     checked items and their per-folder scale factors.
     """
+
+    screenshot_copied = Signal(bool, str)  # success, message
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -42,9 +57,12 @@ class ViewerPanel(QWidget):
         self._edges_action.toggled.connect(self._on_style_changed)
         reset_action = QAction("Reset Camera", self)
         reset_action.triggered.connect(self.reset_camera)
+        screenshot_action = QAction("Copy Screenshot", self)
+        screenshot_action.triggered.connect(self.copy_screenshot_to_clipboard)
         toolbar.addAction(self._wireframe_action)
         toolbar.addAction(self._edges_action)
         toolbar.addAction(reset_action)
+        toolbar.addAction(screenshot_action)
         layout.addWidget(toolbar)
 
         self.plotter = QtInteractor(self)
@@ -59,6 +77,10 @@ class ViewerPanel(QWidget):
         self._colors: dict[str, str] = {}
         self._color_cycle = cycle(_COLOR_PALETTE)
         self._has_loaded_once = False
+
+        self._offset_actors: dict[str, object] = {}
+        self._offset_preview_enabled = False
+        self._offset_preview_distance = 0.0
 
     def set_meshes(self, entries: list[tuple[Path, float]]) -> None:
         """Show exactly these (path, scale) entries, loading new ones and dropping
@@ -100,10 +122,27 @@ class ViewerPanel(QWidget):
         """Toggle drawing the meshes' triangle edges on top of their surface/wireframe."""
         self._edges_action.toggle()
 
+    def set_offset_preview(self, enabled: bool, distance_mm: float) -> None:
+        """Toggle the max-surf-dist live preview.
+
+        When enabled, each shown mesh gets two translucent offset shells,
+        displaced +/- distance_mm along its surface normals - the band within
+        which uniforming's reprojection is allowed to move a vertex off the
+        original surface (see UniformParams.max_surf_dist_mm).
+        """
+        self._offset_preview_enabled = enabled
+        self._offset_preview_distance = distance_mm
+        if self._meshes:
+            self._refresh_actors()
+            self.plotter.render()
+
     def _refresh_actors(self) -> None:
         for actor in self._actors.values():
             self.plotter.remove_actor(actor)
         self._actors.clear()
+        for actor in self._offset_actors.values():
+            self.plotter.remove_actor(actor)
+        self._offset_actors.clear()
 
         style = "wireframe" if self._wireframe_action.isChecked() else "surface"
         show_edges = self._edges_action.isChecked()
@@ -125,6 +164,42 @@ class ViewerPanel(QWidget):
                 reset_camera=False,
             )
 
+            if self._offset_preview_enabled and self._offset_preview_distance > 0:
+                self._add_offset_preview_actors(key, scaled_mesh, self._offset_preview_distance * scale)
+
+    def _add_offset_preview_actors(self, key: str, mesh: pv.PolyData, distance: float) -> None:
+        """Best-effort: skip the preview for a mesh rather than fail the whole render."""
+        try:
+            normals_mesh = mesh.compute_normals(
+                point_normals=True, cell_normals=False, auto_orient_normals=True, consistent_normals=True
+            )
+            outward = normals_mesh.warp_by_vector("Normals", factor=distance)
+            inward = normals_mesh.warp_by_vector("Normals", factor=-distance)
+        except Exception:
+            return
+        self._offset_actors[f"{key}::out"] = self._add_offset_shell(outward, _OFFSET_OUTWARD_COLOR)
+        self._offset_actors[f"{key}::in"] = self._add_offset_shell(inward, _OFFSET_INWARD_COLOR)
+
+    def _add_offset_shell(self, mesh: pv.PolyData, color: str):
+        """Add one offset shell as dashed (gapped) wireframe lines rather than a
+        solid translucent fill, so the underlying mesh remains easy to see.
+        """
+        actor = self.plotter.add_mesh(
+            mesh,
+            style="wireframe",
+            color=color,
+            opacity=_OFFSET_OPACITY,
+            line_width=_OFFSET_LINE_WIDTH,
+            reset_camera=False,
+        )
+        try:
+            prop = actor.GetProperty()
+            prop.SetLineStipplePattern(_OFFSET_STIPPLE_PATTERN)
+            prop.SetLineStippleRepeatFactor(_OFFSET_STIPPLE_REPEAT)
+        except AttributeError:
+            pass  # stippling unsupported on this VTK build - plain dashed-less wireframe is still an improvement
+        return actor
+
     def _on_style_changed(self, _checked: bool) -> None:
         if self._meshes:
             self._refresh_actors()
@@ -142,3 +217,18 @@ class ViewerPanel(QWidget):
 
     def reset_camera(self) -> None:
         self.plotter.reset_camera()
+
+    def copy_screenshot_to_clipboard(self) -> None:
+        """Render the current scene and copy it to the system clipboard as an image."""
+        try:
+            image = self.plotter.screenshot(return_img=True)
+            height, width, channels = image.shape
+            fmt = QImage.Format.Format_RGB888 if channels == 3 else QImage.Format.Format_RGBA8888
+            # .copy() detaches the QImage from the numpy buffer, which is not
+            # guaranteed to stay alive/unchanged after this method returns.
+            qimage = QImage(image.data, width, height, channels * width, fmt).copy()
+            QGuiApplication.clipboard().setImage(qimage)
+        except Exception as exc:  # noqa: BLE001 - report, don't crash the viewer
+            self.screenshot_copied.emit(False, str(exc))
+        else:
+            self.screenshot_copied.emit(True, "Screenshot copied to clipboard.")

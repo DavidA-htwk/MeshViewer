@@ -82,6 +82,7 @@ class MainWindow(QMainWindow):
         # (multi-)selection, so ctrl/shift-click lets you compare parts side
         # by side in the same 3D scene.
         self.viewer = ViewerPanel()
+        self.viewer.screenshot_copied.connect(self._on_screenshot_copied)
         central_layout.addWidget(self.viewer)
 
         self.component_tree = ComponentTree()
@@ -91,6 +92,7 @@ class MainWindow(QMainWindow):
         self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, tree_dock)
 
         self.params_panel = ParamsPanel()
+        self.params_panel.max_surf_dist_preview_changed.connect(self.viewer.set_offset_preview)
         params_dock = QDockWidget("Parameters", self)
         params_dock.setWidget(self.params_panel)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, params_dock)
@@ -193,6 +195,9 @@ class MainWindow(QMainWindow):
     def _on_component_done(self, component_path: str, stage: str, output_path: str) -> None:
         self.component_tree.add_output(component_path, stage, output_path)
         self.log_panel.append_message("info", f"{stage}: {component_path} -> {output_path}")
+
+    def _on_screenshot_copied(self, success: bool, message: str) -> None:
+        self.log_panel.append_message("info" if success else "error", message)
 
     def _on_components_selected(self, entries: list[tuple[str, float]]) -> None:
         valid_entries = []
